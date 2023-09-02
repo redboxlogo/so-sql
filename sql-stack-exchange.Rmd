@@ -1,0 +1,462 @@
+---
+title: "SQL Analysis on Stack Exchange"
+author: "Wanzhu Zheng"
+date: "2023"
+output:
+  pdf_document:
+    latex_engine: xelatex
+  'pdf_document: latex_engine: xelatex': default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Preliminary Setup
+
+```{r}
+library(DBI)
+library(RSQLite)
+db = dbConnect(RSQLite::SQLite(), "/Users/wanzhu_zheng/Downloads/stats.stackexchange.db")
+dbListTables(db)
+lapply(dbListTables(db), function(tbl) dbListFields(db, tbl))
+```
+
+## 13 Questions
+
+Q1: How many users are there?  
+This questions asks for the total number of users that are signed up on the
+StatsExchange Website. Users in the case refers to the Id in the Users table 
+```{r}
+users =  dbGetQuery(db, "SELECT Id,
+                    COUNT(DISTINCT Id) AS Num 
+                    FROM Users GROUP BY Id")
+head(users)
+sum(users$Num)
+```
+Id column refers to the distinct user Id's and Num refers to the number of
+users with that Id. As expected, every user Id has a value of 1.
+From the results, we see there are 321677 total users.  
+
+
+Q2: How many users joined since 2020?  
+This question asks for the total number of users that joined since 2020.
+```{r}
+new_users = dbGetQuery(db, "SELECT CreationDate, 
+                       COUNT(DISTINCT Id) AS Num FROM Users 
+                       GROUP BY CreationDate 
+                       HAVING strftime(CreationDate) > '2020'")
+head(new_users)
+sum(new_users$Num)
+```
+We create a dataframe that shows when an account was created (CreationDate)
+and how many accounts were created at that time (Num). From the results,
+there are 100796 that joined since 2020.  
+
+Q3: How many users joined each year?  
+Describe this with a plot, commenting on any anomalies.  
+We want to find how many users joined the forum for every year.  
+```{r}
+new_users_year = dbGetQuery(db, "SELECT SUBSTRING(CreationDate, 1, 4) AS Joined, 
+                            COUNT(*) AS Num 
+                            FROM Users 
+                            GROUP BY Joined")
+new_users_year
+plot(Num ~ Joined, data=new_users_year, main = "Number of New Users per Year", 
+     xlab="Year Joined", ylab="Number of New Users")
+axis(side=1, at=seq(2010, 2023, by=1))
+axis(side=2, at=seq(0, 45000, by=5000))
+```
+We return a dataframe that shows the year each user joined from 2010, and the
+total number of new users each yaer. We plot this in a scatterplot which shows
+that the number of new users peaked in 2017 with 44416 users joining.  
+
+Q4:How many different types of posts are there in the Posts table? 
+Get the description of the types from the PostTypeIdMap table.     
+In other words, create a table with the description of each post type and the 
+number of posts of that type, and arrange it from most to least occurrences.
+We want to see how many different types of posts a user can post. We will
+extract this from the Posts table.  
+```{r}
+type_query = "
+SELECT * 
+FROM (
+  SELECT Id, value AS Description
+  FROM PostTypeIdMap
+) AS description
+LEFT JOIN (
+  SELECT PostTypeId AS Type, COUNT(*) AS Num
+  FROM Posts
+  GROUP BY PostTypeId
+  ORDER BY Num DESC
+) AS types
+ON description.Id = types.Type"
+
+type_freq = dbGetQuery(db, type_query)
+type_freq$Type = NULL
+type_freq = type_freq[order(type_freq$Num, decreasing=TRUE), ]
+type_freq
+```
+To do so, we create a dataframe with three columns. Id describes the Id
+associated with each post type, Description is the description of the post
+for each post Id, and Num describes the number of posts that fall under
+each category.  
+
+Q5: How many posted questions are there?  
+We want to find the total number of questions posted on the forum.
+To do so, we need a conditional statement that specifies the post type Id
+as 1, as seen from our previous answer.  
+```{r}
+type_freq$Num[type_freq$Id == 1]
+```
+To find the answer, we just need to call the type_freq table from Q4 and
+specify that the Id is 1. There are 204370 questions.  
+
+Q6: What are the top 50 most common tags on questions? For each of the top 50 
+tags on questions, how many questions are there for each tag.  
+We want to find the top 50 most common tags found on all the questions. Then,
+we want to find how many questions are association for each of the top 50 tags.
+```{r}
+tags_50 =  dbGetQuery(db, "SELECT Tag, COUNT(*) AS Num 
+                   FROM TagPosts 
+                   GROUP BY Tag
+                   ORDER BY Num DESC
+                   LIMIT 50")
+tags_50
+```
+We return a dataframe with the column Tag that has all the tag names, and
+order the frequency the tags show up by Num and only return the top 50
+greatest numbers.  
+
+Q7: How many tags are in most questions?   
+This question asks how many tags are present in most questions.  
+```{r}
+tags_per_q =  dbGetQuery(db, "SELECT Id, COUNT(Tag) AS Num 
+                         FROM TagPosts GROUP BY Id 
+                         ORDER BY Num ASC")
+head(tags_per_q)
+tail(tags_per_q)
+summary(tags_per_q$Num)
+```
+We first return a dataframe that shows the number of tags per question Id.
+This tells us that the number of tags ranges anywhere between 1 to 5.
+Then, we call the summary function which shows that there's a median of 3
+tags, and a mean of 3.085 tags.  
+
+Q8: How many answers are there?   
+Similar to Q5, this question is asking us to identify the total number of 
+answers that are posted.  
+```{r}
+type_freq$Num[type_freq$Id == 2]
+```
+There are 197928 answers posted.  
+
+Q9: What’s the most recent question (by date-time) in the Posts table?  
+This question asks us to convert the dates to datetime formate and use that
+to return the most recent question that was posted on the forum.
+```{r}
+creation_query = "SELECT MAX(strftime(CreationDate)) AS Date, Body AS Question
+                         FROM Posts WHERE PostTypeId='1'"
+newest_post = dbGetQuery(db, creation_query)
+newest_post$Date
+newest_post$Question
+```
+The most recent question that was posted on 03-05-2023 and asks if there
+are any methods to combind VI and MCMC. The URL is https://stats.stackexchange.com/questions/608458/are-there-any-methods-that-combine-mcmc-and-vi.
+If there was a URL field in Posts, we would map it by calling URL from Posts
+so our statement would look like "SELECT MAX(strftime(CreationDate)) AS Date, 
+Body AS Question, URL
+FROM Posts WHERE PostTypeId='1'"  
+
+Q14: What is the date range for the questions and answers in this database?  
+I interpreted date range as finding the first question/answer and the
+most recent question/answer.
+```{r}
+date_range_q = dbGetQuery(db, "SELECT MIN(strftime(CreationDate)) AS Min_Date,
+                        MAX(strftime(CreationDate)) AS Max_Date FROM Posts
+                        WHERE PostTypeId='1'")
+date_range_q
+date_range_a = dbGetQuery(db, "SELECT MIN(strftime(CreationDate)) AS Min_Date,
+                        MAX(strftime(CreationDate)) AS Max_Date FROM Posts
+                        WHERE PostTypeId='2'")
+date_range_a
+```
+
+The first question was posted on 02-02-2009 and the most recent question was
+posted on 03-05-2023. The first answer was posted on 02-02-2009 and the most
+recent question was posted on 03-05-2023. This is expected since the first
+and most recent questions posted got its response on the same day, 
+but a later time.  
+
+Q15: What question has the most comments associated with it? 
+How many answers are there for this question?  
+This question asks to return the question with the most comments and asks
+us to find the number of answers for the question
+```{r}
+most_comments = dbGetQuery(db, "SELECT Id, Body, CommentCount, 
+                           AnswerCount FROM Posts
+                           WHERE PostTypeId = '1'
+                           ORDER BY CommentCount DESC
+                           LIMIT 1")
+most_comments
+```
+We return a dataframe with the question Id, the question itself, how many
+comments are associated with it (54), and how many answers the question has (6).  
+
+Q16: How many comments are there across all posts? 
+How many posts have a comment?
+What is the distribution of comments per question?  
+This asks for the total number of comments for all types of posts. Then asks
+to find how many posts have a comment. Finally, we return the distribution
+fo comments per question in a histogram.
+```{r}
+comments = dbGetQuery(db, "SELECT Id, CommentCount FROM POSTS
+                      ORDER BY CommentCount DESC")
+head(comments)
+sum(comments$CommentCount)
+
+has_comment = dbGetQuery(db, "SELECT Id, CommentCount FROM POSTS
+                         WHERE CommentCount != 0
+                         ORDER BY CommentCount DESC")
+nrow(has_comment)
+
+comments_per_q = dbGetQuery(db, "SELECT Id, CommentCount FROM POSTS
+                            WHERE PostTypeId='1'
+                            ORDER BY CommentCount DESC")
+head(comments_per_q)
+comments_freq = table(comments_per_q$CommentCount)
+comments_freq
+
+hist(comments_per_q$CommentCount,breaks=seq(0,70,l=54),
+     xlab="Number of Comments", 
+     main="Distribution of Comments over Questions")
+```
+We first create a dataframe that shows the number of comments for each Id that
+is returned from most comments to least comments. Then, we add up all the
+comments to find that there are 768069 comments in total. Then we create another
+dataframe where our condition statement is all posts that have comments. There
+are 229859 posts that have comments. We then return a histogram mapping the
+frequency of comments. For eample, we see that the histogram is right-skewed,
+meaning that most posts have 0 comments, as seen by our frequency table.  
+
+Q18: Do the people who vote tend to have badges?
+This asks us to find the relationship between people who vote and people who
+have badges.
+```{r}
+voters = dbGetQuery(db, "SELECT COUNT(DISTINCT Votes.UserId) AS voters FROM VOTES")
+voters
+
+votes_query = "
+SELECT COUNT(DISTINCT Votes.UserId) AS voters
+FROM VOTES
+JOIN Badges ON Votes.UserId = Badges.UserId
+"
+voters_badges = dbGetQuery(db, votes_query)
+voters_badges
+```
+We first return a dataframe that tells us how many voters on on the forum.
+From our results we see that there are 3191 voters in total. Then we return
+a dataframe that shows us how many people voters have badges by joining the 
+two query tables. We see that 3186 of voters have badges. This suggests that
+most voters tend to have badges.  
+
+Q21: Compute the table that contains the question, the name of the user who
+posted it, when the user joined, their location, the date the question was
+first posted, the accepted answer, when the accepted answer was posted, 
+the name of the user who provided the accepted answer.
+```{r}
+master_query = "
+SELECT 
+Q.Body AS Question, A.Body AS AcceptedAnswer, Q.Id AS QuestionId, 
+A.Id AS AcceptedAnswerId, Q_User.DisplayName AS PosterUsername, 
+Q_User.CreationDate AS PosterJoined, Q_User.Location AS Location,
+A_User.DisplayName AS AnswererUsername, Q.CreationDate AS DateFirstPosted, 
+A.CreationDate AS DateFirstAnswered
+FROM Posts AS Q, Posts AS A, Users AS Q_User, Users AS A_User
+WHERE Q.OwnerUserId = Q_User.Id
+AND A.OwnerUserId = A_User.Id
+AND A.Id = Q.AcceptedAnswerId
+ORDER BY Q.Id ASC"
+
+master_table = dbGetQuery(db, master_query)
+master_table$AcceptedAnswerId = NULL
+master_table$QuestionId = NULL
+head(master_table)
+```
+
+Q22: Determine the users that have only posted questions and never 
+answered a question? How many are there? 
+This questions asks us to compute the number of questions, number of answers, 
+and the user’s login name for this group. Then, we find users that have 0
+answers.
+```{r}
+QA_query = "
+SELECT
+COUNT(DISTINCT CASE WHEN Q.PostTypeId = 1 THEN Q.Id END) AS QuestionCount, 
+COUNT(DISTINCT CASE WHEN A.PostTypeId = 2 THEN A.Id END) AS AnswerCount, 
+User.DisplayName AS UserName
+FROM Posts AS Q, Posts AS A, Users AS User
+WHERE Q.OwnerUserId = User.Id
+AND A.OwnerUserId = User.Id
+GROUP BY UserName
+ORDER BY QuestionCount DESC
+"
+
+QA_table = dbGetQuery(db, QA_query)
+only_questions = QA_table[QA_table$AnswerCount == 0, ]
+head(only_questions)
+nrow(only_questions)
+```
+From the datatable we see the username of the user, the number of questions
+they posted, and the number of questions they answered, which should be 0. 
+There are 63377 users that only asked questions and never answered quesitons.  
+
+Q23: Compute the table with information for the 75 users with the most 
+accepted answers. This table should include the user's display name, 
+creation date, location, the number of badges they have won, the names of the
+badges, the dates of the earliest and most recent accepted answer, and
+the (unique) tags for all the questions for which they had the 
+accepted answer (as a single string).
+```{r}
+accepted_query = "
+SELECT
+Users.DisplayName, Users.CreationDate AS Joined, Users.Location, 
+COUNT(AA.AcceptedAnswerId) AS AcceptedCount, COUNT(Badges.Id) AS BadgeCount,
+GROUP_CONCAT(DISTINCT Badges.Name) AS Badges, MIN(AA.CreationDate) AS EarliestAnswer,
+MAX(AA.CreationDate) AS MostRecentAA, GROUP_CONCAT(DISTINCT Joiner.Tags) AS BadgeNames
+FROM Users, Badges, Posts AS Joiner, Posts AS AA
+WHERE Users.Id = Badges.UserId
+AND AA.OwnerUserId = Users.Id
+AND AA.Id = Joiner.AcceptedAnswerId
+GROUP BY Users.DisplayName
+ORDER BY COUNT(AA.AcceptedAnswerId) DESC
+LIMIT 75
+"
+
+accepted_table = dbGetQuery(db, accepted_query)
+head(accepted_table)
+```
+This table shows the user's display name, account creation date, 
+location, the number of badges they have won, the names of the
+badges, the dates of the earliest and most recent accepted answer, and
+the (unique) tags for all the questions for which they had the 
+accepted answer (as a single string).  
+
+Q24: How many questions received no answers (accepted or unaccepted)? 
+How many questions had no accepted answer?  
+This questions asks us to find questions that recieved no answers in general
+as well as no accepted answers.
+```{r}
+total_answers_query = "
+SELECT
+Q.Id AS QuestionId, Q.Body AS Question, COUNT(A.Id) AS AcceptedAnswerCount,
+Q.AnswerCount AS TotalAnswerCount
+FROM Posts Q
+LEFT JOIN Posts A ON Q.AcceptedAnswerId = A.Id AND A.PostTypeId = 2
+WHERE Q.PostTypeId = 1
+GROUP BY Q.Id, Q.Body
+HAVING AcceptedAnswerCount = 0 OR TotalAnswerCount = 0
+ORDER BY TotalAnswerCount DESC
+"
+
+total_answers = dbGetQuery(db, total_answers_query)
+head(total_answers)
+no_answers = sum(total_answers$TotalAnswerCount == 0)
+no_answers
+no_accepted_answers = sum(total_answers$AcceptedAnswerCount == 0)
+no_accepted_answers
+```
+We return a dataframe with the question Id, The question, the number of 
+accepted answers, and the number of total answers. There are 66970 questions
+with no answers and 136366 questions with no accepted answers.  
+
+Q25: What is the distribution of answers per posted question?
+We want to find the distribution of answers for each question.
+```{r}
+answers = dbGetQuery(db, "SELECT Id, AnswerCount FROM POSTS
+                     WHERE PostTypeId = '1'
+                     ORDER BY AnswerCount DESC")
+head(answers)
+
+answers_freq = table(answers$AnswerCount)
+answers_freq
+
+summary(answers$AnswerCount)
+
+hist(answers$AnswerCount,breaks=seq(0,155,l=154),
+     xlab="Number of Answers",
+     main="Distribution of Answers Per Question")
+```
+We return a histogram that shows the frequency of how many answers each
+question receives. We see that the histogram is skewed to the right with 
+majority of answers being at 0. This matches our frequency table.  
+
+Q26: What is the length of time for a question to receive an answer? 
+To obtaining an accepted answer?  
+This question asks for how long it takes for a question to receive an answer
+and how long it takes to receive an accepted answer.
+```{r}
+answer_response_query = "
+SELECT
+Q.Id AS QuestionId,
+(unixepoch(A.CreationDate) - unixepoch(Q.CreationDate)) / 60 AS AnswerTime
+FROM Posts Q
+JOIN Posts A ON Q.Id = A.ParentId
+GROUP BY Q.Id
+ORDER BY Q.Id ASC
+"
+
+acceptedanswer_response_query = "
+SELECT
+Q.Id AS QuestionId,
+(unixepoch(AA.CreationDate) - unixepoch(Q.CreationDate)) / 60 AS AnswerTime
+FROM Posts Q
+JOIN Posts AA ON Q.AcceptedAnswerId = AA.Id
+GROUP BY Q.Id
+ORDER BY Q.Id ASC
+"
+a_response_length = dbGetQuery(db, answer_response_query)
+head(a_response_length)
+
+aa_response_length = dbGetQuery(db, acceptedanswer_response_query)
+head(aa_response_length)
+```
+We return two dataframes. The first one tells us the response length in
+minutes for how long it takes to receive an answer for each question. The 
+second table tells us the response length it takes to receive an accepted
+answer. These tables are orderd by question Id.  
+
+Q27: How many answers are typically received before the accepted answer?
+This questions asks us to find how many answers a question receives before
+receiving the accepted answer.
+```{r}
+before_accepted_query = "
+SELECT
+Q.Id AS QuestionId,
+(unixepoch(AA.CreationDate) - unixepoch(Q.CreationDate)) AS AATimeDifference,
+(unixepoch(A.CreationDate) - unixepoch(Q.CreationDate)) AS ATimeDifference,
+COUNT(A.Id) AS BeforeAccepted
+FROM Posts AS Q, Posts AS AA, Posts AS A
+WHERE Q.Id = A.ParentId
+AND Q.AcceptedAnswerId = AA.Id
+AND AATimeDifference < ATimeDifference
+GROUP BY Q.Id
+ORDER BY BeforeAccepted DESC
+"
+
+before_accepted = dbGetQuery(db, before_accepted_query)
+head(before_accepted)
+summary(before_accepted$BeforeAccepted)
+```
+We return a dataframe that shows the question Id, the time it takes for a 
+question to receive an accepted answer (AATimeDifference), the time it takes 
+for a question to receive an just an answer (ATimeDifference), and how many
+answers were received before the accepted answer was posted (BeforeAccepted).
+From the table, we can generalize that there was a median of 1 answer received
+before the accepted answer and there was an average of 1.547 answers received
+before the accepted answer.
+
+
+
+
+
