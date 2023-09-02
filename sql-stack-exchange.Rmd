@@ -22,11 +22,9 @@ dbListTables(db)
 lapply(dbListTables(db), function(tbl) dbListFields(db, tbl))
 ```
 
-## 13 Questions
-
 Q1: How many users are there?  
-This questions asks for the total number of users that are signed up on the
-StatsExchange Website. Users in the case refers to the Id in the Users table 
+This question asks for the total number of users that are signed up on the
+StatsExchange Website. Users in this case refers to the Id in the Users table 
 ```{r}
 users =  dbGetQuery(db, "SELECT Id,
                     COUNT(DISTINCT Id) AS Num 
@@ -55,7 +53,7 @@ there are 100796 that joined since 2020.
 
 Q3: How many users joined each year?  
 Describe this with a plot, commenting on any anomalies.  
-We want to find how many users joined the forum for every year.  
+We want to find out how many users join the forum every year.  
 ```{r}
 new_users_year = dbGetQuery(db, "SELECT SUBSTRING(CreationDate, 1, 4) AS Joined, 
                             COUNT(*) AS Num 
@@ -68,10 +66,10 @@ axis(side=1, at=seq(2010, 2023, by=1))
 axis(side=2, at=seq(0, 45000, by=5000))
 ```
 We return a dataframe that shows the year each user joined from 2010, and the
-total number of new users each yaer. We plot this in a scatterplot which shows
+total number of new users each year. We plot this in a scatterplot which shows
 that the number of new users peaked in 2017 with 44416 users joining.  
 
-Q4:How many different types of posts are there in the Posts table? 
+Q4: How many different types of posts are there in the Posts table? 
 Get the description of the types from the PostTypeIdMap table.     
 In other words, create a table with the description of each post type and the 
 number of posts of that type, and arrange it from most to least occurrences.
@@ -113,9 +111,9 @@ To find the answer, we just need to call the type_freq table from Q4 and
 specify that the Id is 1. There are 204370 questions.  
 
 Q6: What are the top 50 most common tags on questions? For each of the top 50 
-tags on questions, how many questions are there for each tag.  
-We want to find the top 50 most common tags found on all the questions. Then,
-we want to find how many questions are association for each of the top 50 tags.
+tags on questions, how many questions are there for each tag?  
+We want to find the top 50 most common tags found on all the questions. Then, 
+we want to find how many questions are associated with each of the top 50 tags.
 ```{r}
 tags_50 =  dbGetQuery(db, "SELECT Tag, COUNT(*) AS Num 
                    FROM TagPosts 
@@ -161,15 +159,15 @@ newest_post = dbGetQuery(db, creation_query)
 newest_post$Date
 newest_post$Question
 ```
-The most recent question that was posted on 03-05-2023 and asks if there
-are any methods to combind VI and MCMC. The URL is https://stats.stackexchange.com/questions/608458/are-there-any-methods-that-combine-mcmc-and-vi.
+The most recent question was posted on 03-05-2023 and asks if there
+are any methods to combine VI and MCMC. The URL is https://stats.stackexchange.com/questions/608458/are-there-any-methods-that-combine-mcmc-and-vi.
 If there was a URL field in Posts, we would map it by calling URL from Posts
 so our statement would look like "SELECT MAX(strftime(CreationDate)) AS Date, 
 Body AS Question, URL
 FROM Posts WHERE PostTypeId='1'"  
 
 Q14: What is the date range for the questions and answers in this database?  
-I interpreted date range as finding the first question/answer and the
+I interpreted the date range as finding the first question/answer and the
 most recent question/answer.
 ```{r}
 date_range_q = dbGetQuery(db, "SELECT MIN(strftime(CreationDate)) AS Min_Date,
@@ -185,13 +183,13 @@ date_range_a
 The first question was posted on 02-02-2009 and the most recent question was
 posted on 03-05-2023. The first answer was posted on 02-02-2009 and the most
 recent question was posted on 03-05-2023. This is expected since the first
-and most recent questions posted got its response on the same day, 
-but a later time.  
+and most recent questions posted got their response on the same day, 
+but at a later time.  
 
 Q15: What question has the most comments associated with it? 
 How many answers are there for this question?  
 This question asks to return the question with the most comments and asks
-us to find the number of answers for the question
+us to find the number of answers to the question
 ```{r}
 most_comments = dbGetQuery(db, "SELECT Id, Body, CommentCount, 
                            AnswerCount FROM Posts
